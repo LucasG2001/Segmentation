@@ -5,3 +5,6 @@
 .idea
 weights
 gradio_cached_examples
+FastSAM-x.pt
+masks1.pkl
+masks2.pkl
