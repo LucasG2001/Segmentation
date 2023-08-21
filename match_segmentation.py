@@ -4,6 +4,7 @@ import cv2
 from tryout import visualize_segmentation
 from segmentation_matching_helpers import *
 import pickle
+from segmentation_matcher import SegmentationMatcher, SegmentationParameters
 
 
 # Done: overlay both pointclouds
@@ -73,6 +74,7 @@ def crop_image_to_workspace(image, intrinsics, transform=np.eye(4, 4), min_bound
 
 if __name__ == "__main__":
     # ToDo: When adjusting workspace directly crop image to save segmentation runtime
+    # ToDO: implement pipeline to read and save camera intrinsics, transformations etc. from file
     # "global" parameters
     model = FastSAM('FastSAM-x.pt')
 
@@ -116,6 +118,7 @@ if __name__ == "__main__":
     # Done: we SHOULD NOT scale anymore, save the depth image as uint16 scaled by 10k
     # -> The Pointcloud is empty
     # ZED camera intrinsics
+    # ToDo: find out why intrinsics from ZED API are not equal to intrinsics from zed explorer
     o3d_intrinsic1 = o3d.camera.PinholeCameraIntrinsic(width=1280, height=720,
                                                        fx=533.77, fy=535.53,
                                                        cx=661.87, cy=351.29)
@@ -124,20 +127,19 @@ if __name__ == "__main__":
                                                        fx=523.68, fy=523.68,
                                                        cx=659.51, cy=365.34)
 
-    img = crop_image_to_workspace(color_image2, o3d_intrinsic2, transform=H2, min_bound=(-0.2, -0.5, -0.1),
-                                  max_bound=(0.5, 0.5, 1.0))
+    segmentation_parameters = SegmentationParameters(736, conf=0.6, iou=0.9)
+    segmenter = SegmentationMatcher(segmentation_parameters, cutoff=2.0, model_path='FastSAM-x.pt')
+    segmenter.set_camera_params([o3d_intrinsic1, o3d_intrinsic2], [H1, H2])
+    segmenter.set_images([color_image1, color_image2], [depth_image1, depth_image2])
+    # ToDo: Segmentation seems to be slower when called via this class
+    mask_arrays = segmenter.segment_color_images(device="cpu")
+    segmenter.generate_pointclouds_from_masks()
+    global_pointclouds = segmenter.project_pointclouds_to_global()
+    # exception free
+    correspondences, scores = segmenter.match_segmentations(voxel_size=0.05, threshold=0.0)
+    corresponding_pointclouds = segmenter.align_corresponding_objects(correspondences, scores)
 
-    # ToDo: Maybe we can use fastsam background to help our segmentation
-    """
-    cv2.imshow('img', img)
-    cv2.waitKey(0)
-    img = crop_image_to_workspace(color_image1, o3d_intrinsic1, transform=H1, min_bound=(-0.2, -0.5, -0.1),
-                                  max_bound=(0.5, 0.5, 1.0))
-    cv2.imshow('img', img)
-    cv2.waitKey(0)
-    """
-
-
+    # ToDo: Maybe we can use fastsam background to help our segmentation (with point prompt)
 
     cut_off_depth = 2.0  # [m] define how far the generated pointclouds should reach in depth
     pc_array_1 = []
@@ -160,10 +162,10 @@ if __name__ == "__main__":
     point_cloud2 = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_image2, o3d_intrinsic2)
 
     # Visualizations (mainly for debugging)
-    o3d.visualization.draw_geometries([point_cloud1], width=1280, height=720)
-    o3d.visualization.draw_geometries([point_cloud2], width=1280, height=720)
+    # o3d.visualization.draw_geometries([point_cloud1], width=1280, height=720)
+    # o3d.visualization.draw_geometries([point_cloud2], width=1280, height=720)
     # o3d.visualization.draw_geometries([point_cloud1, point_cloud2], width=1280, height=720)
-    o3d.visualization.draw_geometries([point_cloud1.transform(H1), point_cloud2.transform(H2)], width=1280, height=720)
+    # o3d.visualization.draw_geometries([point_cloud1.transform(H1), point_cloud2.transform(H2)], width=1280, height=720)
 
     # Done: Check why the pointclouds are such dogshit -> Mix of scaling (because uint8) and image smoothing
     # ToDO: Check overlap in segmentations and think about how to combat it
@@ -196,13 +198,15 @@ if __name__ == "__main__":
     print("getting pointclouds 1")
     geometry_list = []
     for i, mask in enumerate(mask_array_1):
-        mask = np.asarray(mask.cpu().numpy())
+        # mask = np.asarray(mask.cpu().numpy())
         local_depth = o3d.geometry.Image(depth_image1 * mask)
         rgbd_img = o3d.geometry.RGBDImage.create_from_color_and_depth(o3d_color_1, local_depth,
                                                                       depth_scale=10000, depth_trunc=cut_off_depth,
                                                                       convert_rgb_to_intensity=False)
-        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic1)
+        # fill in the extrinsic parameter for bounding box visualization
+        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic1, extrinsic=np.linalg.inv(H1))
         # pc.paint_uniform_color(np.divide(colors_ocv1[i], 255))
+        # ToDo: Maybe already delete here all the pointclouds outside of the workspace (GLOBAL)
         pc = pc.uniform_down_sample(every_k_points=3)
         # pc, _ = pc.remove_statistical_outlier(nb_neighbors=20, std_ratio=0.99)
         pc, _ = pc.remove_radius_outlier(nb_points=25, radius=0.05)
@@ -224,12 +228,12 @@ if __name__ == "__main__":
         # color[2] = 0
 
     for i, mask in enumerate(mask_array_2):
-        mask = np.asarray(mask.cpu().numpy())
+        # mask = np.asarray(mask.cpu().numpy())
         local_depth = o3d.geometry.Image(depth_image2 * mask)
         rgbd_img = o3d.geometry.RGBDImage.create_from_color_and_depth(o3d_color_2, local_depth,
                                                                       depth_scale=10000, depth_trunc=cut_off_depth,
                                                                       convert_rgb_to_intensity=False)
-        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic2)
+        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic2, extrinsic=np.linalg.inv(H2))
         # pc.paint_uniform_color(np.divide(colors_ocv2[i], 255))
 
         pc = pc.uniform_down_sample(every_k_points=3)
@@ -242,7 +246,7 @@ if __name__ == "__main__":
             geometry_list.append(bbox)
             geometry_list.append(pc)
 
-    # o3d.visualization.draw_geometries(geometry_list, width=1280, height=720)
+    o3d.visualization.draw_geometries(geometry_list, width=1280, height=720)
     print("Converting pointclouds to global coordinate system...")
 
     # convert pointclouds to global coordinate system
@@ -250,10 +254,6 @@ if __name__ == "__main__":
                                                         paint=None)
     global_pc2, T_S_c2 = project_point_clouds_to_global(pc_array_2, rotations["camera1"], translations["camera1"],
                                                         paint=None)
-    # Done: Render both pointclouds with distinct colors in the same window to check their global alignment
-    temp = global_pc1.copy()
-    temp.extend(global_pc2)
-
 
     print("matching segmentations now!")
     # Done: Improve Matching. For some reasons objects far apart are matched together

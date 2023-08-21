@@ -74,8 +74,11 @@ def segment_image(image_path, nn, imgsz=736, conf=0.5, iou=0.8, output_path="./o
     everything_results = model(IMAGE_PATH, device=DEVICE, retina_masks=True, imgsz=imgsz, conf=conf, iou=iou)
     prompt_process = FastSAMPrompt(IMAGE_PATH, everything_results, device=DEVICE)
     # everything prompt
-    mask_array = prompt_process.everything_prompt()  # results.mask.data
-    prompt_process.plot(annotations=mask_array, output_path=output_path)
+    # mask_array = prompt_process.everything_prompt()  # results.mask.data
+    annotations = prompt_process._format_results(result=everything_results[0], filter=0)
+    annotations, _ = prompt_process.filter_masks(annotations)
+    prompt_process.plot(annotations=annotations, output_path=output_path)
+    mask_array = [ann["segmentation"] for ann in annotations]  # is of type np_array
     result_dict = prompt_process._format_results(everything_results[0])
     ids = [d['id'] for d in result_dict]
 

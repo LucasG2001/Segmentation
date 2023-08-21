@@ -76,7 +76,8 @@ def visualize_segmentation(mask_array, depth_image, wait=10):
         rgb_image = depth_image.astype(np.uint8)  # scale down the depth image to uint8 to be compatible with rgb
     color_list = []
     for mask in mask_array:
-        int_array = mask.cpu().numpy().astype(np.uint8)
+        int_array = mask.astype(np.uint8)
+        # int_array = mask.cpu().numpy().astype(np.uint8)
         # Find coordinates of white pixels in the binary image
         white_pixels_coords = np.where(int_array == 1)
         # Choose a random color for the white patch (excluding black and white)
