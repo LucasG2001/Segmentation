@@ -6,7 +6,7 @@ from segmentation_matching_helpers import *
 import pickle
 from segmentation_matcher import SegmentationMatcher, SegmentationParameters
 import time
-
+import torch
 # Done: overlay both pointclouds
 # Done: filter "complete" pointcloud
 # Done: make colors consistent for debugging
@@ -77,6 +77,15 @@ if __name__ == "__main__":
     # ToDO: implement pipeline to read and save camera intrinsics, transformations etc. from file
     # "global" parameters
     model = FastSAM('FastSAM-x.pt')
+    DEVICE = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+
+    print("using device ", DEVICE)
 
     T_0S = np.array([[-1, 0, 0, 0.41],  # Transformations from Robot base (0) to Checkerboard Frame (S)
                      [0, 1, 0, 0.0],
@@ -129,15 +138,15 @@ if __name__ == "__main__":
     print("starting")
     start_time = time.time()
     segmentation_parameters = SegmentationParameters(736, conf=0.6, iou=0.9)
-    segmenter = SegmentationMatcher(segmentation_parameters, cutoff=1.5, model_path='FastSAM-x.pt')
+    segmenter = SegmentationMatcher(segmentation_parameters, cutoff=1.5, model_path='FastSAM-x.pt', DEVICE=DEVICE)
     initialization_time = time.time() - start_time
     print("took ", initialization_time, " to initialize")
     segmenter.set_camera_params([o3d_intrinsic1, o3d_intrinsic2], [H1, H2])
     segmenter.set_images([color_image1, color_image2], [depth_image1, depth_image2])
-    segmenter.preprocess_images()
+    segmenter.preprocess_images(visualize=False)
     image_set_time = time.time() - initialization_time - start_time
     print("Loading images took ", image_set_time)
-    mask_arrays = segmenter.segment_color_images(device="cpu", filter_masks=True)
+    mask_arrays = segmenter.segment_color_images(filter_masks=False)
     segmentation_time = time.time() - image_set_time - initialization_time - start_time
     print("Segmentation took ", segmentation_time)
     segmenter.generate_pointclouds_from_masks()
@@ -149,7 +158,7 @@ if __name__ == "__main__":
     correspondences, scores = segmenter.match_segmentations(voxel_size=0.05, threshold=0.0)
     correspondence_time = time.time() - transform_time - pointcloud_time - segmentation_time - image_set_time - initialization_time - start_time
     print("Finding correspondences took ", correspondence_time)
-    corresponding_pointclouds = segmenter.align_corresponding_objects(correspondences, scores)
+    corresponding_pointclouds = segmenter.align_corresponding_objects(correspondences, scores, visualize=False)
     icp_time = time.time() - correspondence_time - transform_time - pointcloud_time - segmentation_time - image_set_time - initialization_time - start_time
     total_time = time.time() - start_time
     print("Aligning corresponding point-clouds took ", icp_time)

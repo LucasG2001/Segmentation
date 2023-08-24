@@ -1,10 +1,5 @@
-import numpy as np
-import open3d.cpu.pybind.geometry
-import open3d.visualization
 import cv2
-from tryout import visualize_segmentation
 from segmentation_matching_helpers import *
-import pickle
 import time
 
 
@@ -25,7 +20,7 @@ class SegmentationMatcher:
     Note that this Matcher works with tuples or lists of images, camera parameters and so on
     """
 
-    def __init__(self, segmentation_parameters, cutoff, model_path='FastSAM-x.pt'):
+    def __init__(self, segmentation_parameters, cutoff, model_path='FastSAM-x.pt', DEVICE="cpu"):
         self.color_images = []
         self.depth_images = []
         self.intrinsics = []
@@ -36,6 +31,8 @@ class SegmentationMatcher:
         self.max_depth = cutoff  # truncation depth
         self.pc_array_1 = []
         self.pc_array_2 = []
+        self.device = DEVICE
+        self.nn_model.to(self.device)
 
     def set_camera_params(self, intrinsics, transforms):
         self.intrinsics = intrinsics
@@ -48,22 +45,24 @@ class SegmentationMatcher:
         self.color_images = color_images
         self.depth_images = depth_images
 
-    def preprocess_images(self):
+    def preprocess_images(self, visualize=False):
         for i, (depth_image, color_image) in enumerate(zip(self.depth_images, self.color_images)):
             depth_mask = depth_image > self.max_depth * 10000
             depth_image[depth_mask] = 0  # should make depth image black at these points -> non-valid pointcloud
             # Set corresponding color image pixels to 0
             color_image[np.stack([depth_mask] * 3, axis=-1)] = 0
-            cv2.imshow('color_img', self.color_images[i])
-            cv2.waitKey(0)
+            if visualize:
+                cv2.imshow('color_img', self.color_images[i])
+                cv2.waitKey(0)
 
 
     def set_segmentation_params(self, segmentation_params):
         self.seg_params = segmentation_params
 
-    def segment_color_images(self, device="cpu", filter_masks=True):
+    def segment_color_images(self, filter_masks=True):
         # ToDo: test if one can scam runtime of the model by combining the them at the same time
-        DEVICE = device
+        # ToDo: Yes we can do exactly that
+        DEVICE = self.device
         print("loaded NN model")
         color_images = self.color_images
         for image in color_images:
@@ -71,8 +70,6 @@ class SegmentationMatcher:
                                                imgsz=self.seg_params.image_size, conf=self.seg_params.confidence,
                                                iou=self.seg_params.iou)
             prompt_process = FastSAMPrompt(image, everything_results, device=DEVICE)
-            # everything prompt
-            # mask_array = prompt_process.everything_prompt()  # results.mask.data
             annotations = prompt_process._format_results(result=everything_results[0], filter=0)
             if filter_masks:
                 annotations, _ = prompt_process.filter_masks(annotations)
@@ -144,7 +141,7 @@ class SegmentationMatcher:
 
         return correspondences, scores
 
-    def align_corresponding_objects(self, correspondences, scores):
+    def align_corresponding_objects(self, correspondences, scores, visualize=False):
         # ToDo: (Here or in other function) -> take correspondences and create single pointcloud
         #  out of them for ROS publishing
         corresponding_pointclouds = []
@@ -165,8 +162,10 @@ class SegmentationMatcher:
                 # complete stop of the program
                 print(f"Open3D Error: {e}")
                 print("proceeding by overlaying point-clouds without transformation")
+                print("proceeding by overlaying point-clouds without transformation")
 
             corresponding_pointclouds.append(pc_tuple)
-            o3d.visualization.draw_geometries(pc_tuple)
+            if visualize:
+                o3d.visualization.draw_geometries(pc_tuple)
 
         return corresponding_pointclouds
