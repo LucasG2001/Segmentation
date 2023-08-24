@@ -5,7 +5,7 @@ from tryout import visualize_segmentation
 from segmentation_matching_helpers import *
 import pickle
 from segmentation_matcher import SegmentationMatcher, SegmentationParameters
-
+import time
 
 # Done: overlay both pointclouds
 # Done: filter "complete" pointcloud
@@ -126,18 +126,34 @@ if __name__ == "__main__":
     o3d_intrinsic2 = o3d.camera.PinholeCameraIntrinsic(width=1280, height=720,
                                                        fx=523.68, fy=523.68,
                                                        cx=659.51, cy=365.34)
-
+    print("starting")
+    start_time = time.time()
     segmentation_parameters = SegmentationParameters(736, conf=0.6, iou=0.9)
-    segmenter = SegmentationMatcher(segmentation_parameters, cutoff=2.0, model_path='FastSAM-x.pt')
+    segmenter = SegmentationMatcher(segmentation_parameters, cutoff=1.5, model_path='FastSAM-x.pt')
+    initialization_time = time.time() - start_time
+    print("took ", initialization_time, " to initialize")
     segmenter.set_camera_params([o3d_intrinsic1, o3d_intrinsic2], [H1, H2])
     segmenter.set_images([color_image1, color_image2], [depth_image1, depth_image2])
-    # ToDo: Segmentation seems to be slower when called via this class
-    mask_arrays = segmenter.segment_color_images(device="cpu")
+    segmenter.preprocess_images()
+    image_set_time = time.time() - initialization_time - start_time
+    print("Loading images took ", image_set_time)
+    mask_arrays = segmenter.segment_color_images(device="cpu", filter_masks=True)
+    segmentation_time = time.time() - image_set_time - initialization_time - start_time
+    print("Segmentation took ", segmentation_time)
     segmenter.generate_pointclouds_from_masks()
+    pointcloud_time = time.time() - segmentation_time - image_set_time - initialization_time - start_time
+    print("Creating pointclouds took ", pointcloud_time)
     global_pointclouds = segmenter.project_pointclouds_to_global()
-    # exception free
+    transform_time = time.time() - pointcloud_time - segmentation_time - image_set_time - initialization_time - start_time
+    print("Transforming pointclouds took ", transform_time)
     correspondences, scores = segmenter.match_segmentations(voxel_size=0.05, threshold=0.0)
+    correspondence_time = time.time() - transform_time - pointcloud_time - segmentation_time - image_set_time - initialization_time - start_time
+    print("Finding correspondences took ", correspondence_time)
     corresponding_pointclouds = segmenter.align_corresponding_objects(correspondences, scores)
+    icp_time = time.time() - correspondence_time - transform_time - pointcloud_time - segmentation_time - image_set_time - initialization_time - start_time
+    total_time = time.time() - start_time
+    print("Aligning corresponding point-clouds took ", icp_time)
+    print("Total process took ", total_time)
 
     # ToDo: Maybe we can use fastsam background to help our segmentation (with point prompt)
 
@@ -145,9 +161,9 @@ if __name__ == "__main__":
     pc_array_1 = []
     pc_array_2 = []
     # segmentation parameters
-    fresh_segment = False  # if False, load masks from file, if True segment the image again
+    fresh_segment = True  # if False, load masks from file, if True segment the image again
     segmentation_confidence = 0.6
-    segmentation_iou = 0.8
+    segmentation_iou = 0.9
     image_size = 736
 
     # create scene overview
@@ -190,7 +206,7 @@ if __name__ == "__main__":
         with open('masks2.pkl', 'rb') as f:
             mask_array_2 = pickle.load(f)
 
-    colors_ocv1 = visualize_segmentation(mask_array_1, depth_image1, wait=0)
+    colors_ocv1 = visualize_segmentation(mask_array_1, depth_image1, wait=10)
     for color in colors_ocv1:
         color = color[::-1]  # rgb to bgr (opencv to o3d)
         # color[1] = 0
@@ -204,14 +220,14 @@ if __name__ == "__main__":
                                                                       depth_scale=10000, depth_trunc=cut_off_depth,
                                                                       convert_rgb_to_intensity=False)
         # fill in the extrinsic parameter for bounding box visualization
-        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic1, extrinsic=np.linalg.inv(H1))
+        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic1)
         # pc.paint_uniform_color(np.divide(colors_ocv1[i], 255))
         # ToDo: Maybe already delete here all the pointclouds outside of the workspace (GLOBAL)
         pc = pc.uniform_down_sample(every_k_points=3)
         # pc, _ = pc.remove_statistical_outlier(nb_neighbors=20, std_ratio=0.99)
         pc, _ = pc.remove_radius_outlier(nb_points=25, radius=0.05)
         # o3d.visualization.draw_geometries([pc], width=1280, height=720)
-        if pc != 1 and len(pc.points) > 100:  # delete all pointclouds with less than 40 points
+        if pc != 1 and len(pc.points) > 100:  # delete all pointclouds with less than 100 points
             pc_array_1.append(pc)
             bbox = pc.get_minimal_oriented_bounding_box()
             bbox.color = (1, 0, 0)
@@ -233,7 +249,7 @@ if __name__ == "__main__":
         rgbd_img = o3d.geometry.RGBDImage.create_from_color_and_depth(o3d_color_2, local_depth,
                                                                       depth_scale=10000, depth_trunc=cut_off_depth,
                                                                       convert_rgb_to_intensity=False)
-        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic2, extrinsic=np.linalg.inv(H2))
+        pc = o3d.geometry.PointCloud.create_from_rgbd_image(image=rgbd_img, intrinsic=o3d_intrinsic2)
         # pc.paint_uniform_color(np.divide(colors_ocv2[i], 255))
 
         pc = pc.uniform_down_sample(every_k_points=3)
