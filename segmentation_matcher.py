@@ -1,6 +1,7 @@
 import cv2
 from segmentation_matching_helpers import *
 import time
+import torch
 
 
 class SegmentationParameters:
@@ -44,6 +45,12 @@ class SegmentationMatcher:
     def set_images(self, color_images, depth_images):
         self.color_images = color_images
         self.depth_images = depth_images
+        stacked_images = np.vstack([self.color_images[0], self.color_images[1]])
+        for i in range(50):
+            self.color_images.append(self.color_images[0])
+
+        batch_img = torch.from_numpy(stacked_images).float()
+        self.batch_img = batch_img.to(self.device)
 
     def preprocess_images(self, visualize=False):
         for i, (depth_image, color_image) in enumerate(zip(self.depth_images, self.color_images)):
@@ -54,7 +61,6 @@ class SegmentationMatcher:
             if visualize:
                 cv2.imshow('color_img', self.color_images[i])
                 cv2.waitKey(0)
-
 
     def set_segmentation_params(self, segmentation_params):
         self.seg_params = segmentation_params
@@ -76,6 +82,30 @@ class SegmentationMatcher:
             mask_array = [ann["segmentation"] for ann in annotations]  # is of type np_array
 
             self.mask_arrays.append(mask_array)
+
+        return self.mask_arrays
+
+    def segment_color_images_batch(self, filter_masks=True):
+        DEVICE = self.device
+        print("loaded NN model")
+        color_images = self.color_images
+        start_time = time.time()
+        everything_results = self.nn_model(self.color_images, device=DEVICE, retina_masks=True,
+                                           imgsz=self.seg_params.image_size, conf=self.seg_params.confidence,
+                                           iou=self.seg_params.iou)
+        # takes 95% of runtime up to here
+        print("NN took ", time.time() - start_time, " s")
+        prompt_process = FastSAMPrompt(self.color_images, everything_results, device=DEVICE)
+        annotations1 = prompt_process._format_results(result=everything_results[0], filter=0)
+        annotations2 = prompt_process._format_results(result=everything_results[1], filter=0)
+        # takes 99% of runtime up to here (without filtering)
+        if filter_masks:
+            annotations1, _ = prompt_process.filter_masks(annotations1)
+            annotations2, _ = prompt_process.filter_masks(annotations2)
+        mask_array1 = [ann["segmentation"] for ann in annotations1]  # is of type np_array
+        mask_array2 = [ann["segmentation"] for ann in annotations2]  # is of type np_array
+
+        self.mask_arrays = [mask_array1, mask_array2]
 
         return self.mask_arrays
 
@@ -110,11 +140,9 @@ class SegmentationMatcher:
 
                 pc_creation_time = time.time() - rgbd_time - start_time
                 pc_creating += pc_creation_time
-
-                # pc.paint_uniform_color(np.divide(colors_ocv1[i], 255))
                 pc = pc.uniform_down_sample(every_k_points=4)
                 # pc, _ = pc.remove_statistical_outlier(nb_neighbors=20, std_ratio=0.99)
-                # ToDO: PC filtering is very costly and make sup 60% of the function call.
+                # ToDO: PC filtering is very costly and maks up 60% of the function call.
                 #  However, the quality of the matches is shit without it
                 pc, _ = pc.remove_radius_outlier(nb_points=30, radius=0.05)
                 pc_postprocess_time = time.time() - pc_creation_time - rgbd_time - start_time

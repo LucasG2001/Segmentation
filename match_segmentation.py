@@ -11,7 +11,7 @@ import torch
 # Done: filter "complete" pointcloud
 # Done: make colors consistent for debugging
 # Done: Make depth (max dist.) consistent with image
-# ToDo: (Change Git Repo)
+# Done: (Change Git Repo)
 # ToDo: (optimize for open3d gpu support)
 # ToDo: (try mobile sam)
 # ToDo: Add additional inspection on 2D image, using image id's
@@ -146,7 +146,8 @@ if __name__ == "__main__":
     segmenter.preprocess_images(visualize=False)
     image_set_time = time.time() - initialization_time - start_time
     print("Loading images took ", image_set_time)
-    mask_arrays = segmenter.segment_color_images(filter_masks=False)
+    # mask_arrays = segmenter.segment_color_images(filter_masks=False)
+    mask_arrays = segmenter.segment_color_images_batch(filter_masks=False)  # batch processing of two images saves meagre 0.3 seconds
     segmentation_time = time.time() - image_set_time - initialization_time - start_time
     print("Segmentation took ", segmentation_time)
     segmenter.generate_pointclouds_from_masks()
