@@ -1,6 +1,7 @@
 *.pyc
 *.pyo
 *.pyd
+*.pkl
 .DS_Store
 .idea
 weights
@@ -8,3 +9,7 @@ gradio_cached_examples
 FastSAM-x.pt
 masks1.pkl
 masks2.pkl
+get_python_api.py
+PyOpenGL-3.1.5-cp39-cp39-win_amd64.whl
+PyOpenGL_accelerate-3.1.5-cp39-cp39-win_amd64.whl
+pyzed-3.8-cp39-cp39-win_amd64.whl

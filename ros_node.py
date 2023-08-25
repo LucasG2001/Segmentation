@@ -7,7 +7,7 @@ import pickle
 from segmentation_matcher import SegmentationMatcher, SegmentationParameters
 import time
 import torch
-import rospy
+# import rospy
 import pyzed.sl as sl
 # Done: overlay both pointclouds
 # Done: filter "complete" pointcloud
