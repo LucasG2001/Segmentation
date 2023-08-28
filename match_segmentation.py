@@ -108,6 +108,8 @@ if __name__ == "__main__":
     # read in images
     depth_image1 = cv2.imread("./images/depth_img1.png", -1)  # read in as 1 channel
     depth_image2 = cv2.imread("./images/depth_img2.png", -1)  # read in as 1 channel
+    depth_image1 = cv2.medianBlur(depth_image1, 5)
+    depth_image2 = cv2.medianBlur(depth_image2, 5)
     rgb_image_path1 = "./images/color_img1.png"
     rgb_image_path2 = "./images/color_img2.png"
     color_image1 = cv2.imread(rgb_image_path1, -1)[:, :, 0:3]  # read in as 3-channel

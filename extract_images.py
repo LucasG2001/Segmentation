@@ -15,6 +15,9 @@ left_list = []
 depth_list = []
 timestamp_list = []
 thread_list = []
+depth_images = []
+color_images = []
+viewer_list = []
 stop_signal = False
 
 
@@ -51,16 +54,34 @@ def grab_run(index):
     global timestamp_list
     global left_list
     global depth_list
-
+    global viewer_list
+    camera_model = zed_list[index].get_camera_information().camera_model
+    res = sl.Resolution()
+    res.width = 1280
+    res.height = 720
+    viewer_list[index].init(1, sys.argv, camera_model, res)
     runtime = sl.RuntimeParameters()
     while not stop_signal:
         err = zed_list[index].grab(runtime)
         if err == sl.ERROR_CODE.SUCCESS:
-            zed_list[index].retrieve_image(left_list[index], sl.VIEW.LEFT)
-            zed_list[index].retrieve_measure(depth_list[index], sl.MEASURE.DEPTH)
+            zed_list[index].retrieve_image(left_list[index], sl.VIEW.LEFT)  # color image
+            zed_list[index].retrieve_measure(depth_list[index], sl.MEASURE.DEPTH)  # depth image
+            # depth_images[index] = depth_list[index].get_data()
+            # color_images[index] = left_list[index].get_data()
             timestamp_list[index] = zed_list[index].get_timestamp(sl.TIME_REFERENCE.CURRENT).data_ns
         time.sleep(0.001)  # 1ms
     zed_list[index].close()
+
+    # Display the depth view from the numpy array
+    """
+       if viewer.save_data:
+        print("images extracted")
+        viewer.save_data = False
+        return color_image_ocv, depth_image_ocv
+    else:
+        return 0, 0
+    """
+
 
 
 def main():
@@ -70,6 +91,9 @@ def main():
     global depth_list
     global timestamp_list
     global thread_list
+    global color_images
+    global depth_images
+    global viewer_list
     signal.signal(signal.SIGINT, signal_handler)
 
     print("Running...")
@@ -80,9 +104,6 @@ def main():
     init.depth_mode = sl.DEPTH_MODE.NEURAL
     init.coordinate_system = sl.COORDINATE_SYSTEM.RIGHT_HANDED_Y_UP
     # set camera resolution
-    res = sl.Resolution()
-    res.width = 1280
-    res.height = 720
     # List and open cameras
     name_list = []
     last_ts_list = []
@@ -95,6 +116,7 @@ def main():
         zed_list.append(sl.Camera())
         left_list.append(sl.Mat())
         depth_list.append(sl.Mat())
+        viewer_list.append(gl.GLViewer())
         timestamp_list.append(0)
         last_ts_list.append(0)
         status = zed_list[index].open(init)
@@ -103,16 +125,18 @@ def main():
             zed_list[index].close()
         index = index + 1
 
-    viewer1 = gl.GLViewer()
+    """
+      viewer1 = gl.GLViewer()
     viewer2 = gl.GLViewer()
     viewers = [viewer1, viewer2]
+    """
     # Start camera threads
     for index in range(0, len(zed_list)):
         if zed_list[index].is_opened():
             thread_list.append(threading.Thread(target=grab_run, args=(index,)))
             thread_list[index].start()
             camera_model = zed_list[index].get_camera_information().camera_model
-            viewers[index].init(1, sys.argv, camera_model, res)
+            # viewers[index].init(1, sys.argv, camera_model, res)
             # ToDo: write camera intrinsics to file
             zed_params = zed_list[index].get_camera_information().calibration_parameters
             print("ZED Camera Intrinsics:")
@@ -127,14 +151,18 @@ def main():
     zed1 = zed_list[0]
     zed2 = zed_list[1]
     # Display camera images
-    while not viewer1.save_data:
-        print("Running image preview  sample ... Press 'Esc' to quit\nPress 's' to save the depth and color image")
-        if zed_list[0].grab() == sl.ERROR_CODE.SUCCESS and zed_list[1].grab() == sl.ERROR_CODE.SUCCESS:
-            color1_ocv, depth1_ocv = extract_image_data(zed1, depth_for_display, depth_image, color_image, viewer1)
-            color2_ocv, depth2_ocv = extract_image_data(zed2, depth_for_display, depth_image, color_image, viewer2)
-
-    zed1.close()
-    zed2.close()
+    # Display camera images
+    key = ''
+    while key != 113:  # for 'q' key
+        for index in range(0, len(zed_list)):
+            if zed_list[index].is_opened():
+                if timestamp_list[index] > last_ts_list[index]:
+                    cv2.imshow(name_list[0], left_list[0].get_data())
+                    x = round(depth_list[index].get_width() / 2)
+                    y = round(depth_list[index].get_height() / 2)
+                    err, depth_value = depth_list[index].get_value(x, y)
+                    last_ts_list[index] = timestamp_list[index]
+        key = cv2.waitKey(2)
     cv2.destroyAllWindows()
 
     # Stop the threads

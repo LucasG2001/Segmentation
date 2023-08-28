@@ -46,8 +46,8 @@ class SegmentationMatcher:
         self.color_images = color_images
         self.depth_images = depth_images
         stacked_images = np.vstack([self.color_images[0], self.color_images[1]])
-        for i in range(50):
-            self.color_images.append(self.color_images[0])
+        # for i in range(50):
+            # self.color_images.append(self.color_images[0])
 
         batch_img = torch.from_numpy(stacked_images).float()
         self.batch_img = batch_img.to(self.device)
@@ -140,11 +140,11 @@ class SegmentationMatcher:
 
                 pc_creation_time = time.time() - rgbd_time - start_time
                 pc_creating += pc_creation_time
-                pc = pc.uniform_down_sample(every_k_points=4)
-                # pc, _ = pc.remove_statistical_outlier(nb_neighbors=20, std_ratio=0.99)
+                pc = pc.uniform_down_sample(every_k_points=3)
+                pc, _ = pc.remove_statistical_outlier(nb_neighbors=25, std_ratio=0.6)
                 # ToDO: PC filtering is very costly and maks up 60% of the function call.
                 #  However, the quality of the matches is shit without it
-                pc, _ = pc.remove_radius_outlier(nb_points=30, radius=0.05)
+                # pc, _ = pc.remove_radius_outlier(nb_points=30, radius=0.05)
                 pc_postprocess_time = time.time() - pc_creation_time - rgbd_time - start_time
                 postprocessing += pc_postprocess_time
 
