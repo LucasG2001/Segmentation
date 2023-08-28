@@ -7,16 +7,15 @@ import pickle
 from segmentation_matcher import SegmentationMatcher, SegmentationParameters
 import time
 import torch
-# import rospy
+import rospy
+from sensor_msgs.msg import Image
 import pyzed.sl as sl
-# Done: overlay both pointclouds
-# Done: filter "complete" pointcloud
-# Done: make colors consistent for debugging
-# Done: Make depth (max dist.) consistent with image
-# Done: (Change Git Repo)
-# ToDo: (optimize for open3d gpu support)
-# ToDo: (try mobile sam)
-# ToDo: Add additional inspection on 2D image, using image id's
+
+def img_callback():
+    print("got a color image")
+
+def depth_callback():
+    print("got a depth image")
 
 def homogenous_transform(R, t):
     homogeneous_matrix = np.eye(4, dtype=np.float64)
@@ -24,8 +23,6 @@ def homogenous_transform(R, t):
     homogeneous_matrix[0:3, 3:4] = t
 
     return homogeneous_matrix
-
-
 
 
 if __name__ == "__main__":
@@ -61,29 +58,23 @@ if __name__ == "__main__":
     H1 = T_0S @ homogenous_transform(rotations["camera0"], translations["camera0"])  # T_0S @ T_S_c1
     H2 = T_0S @ homogenous_transform(rotations["camera1"], translations["camera1"])  # T_0S @ T_S_c2
 
-    # read in images
-    depth_image1 = cv2.imread("./images/depth_img1.png", -1)  # read in as 1 channel
-    depth_image2 = cv2.imread("./images/depth_img2.png", -1)  # read in as 1 channel
-    rgb_image_path1 = "./images/color_img1.png"
-    rgb_image_path2 = "./images/color_img2.png"
-    color_image1 = cv2.imread(rgb_image_path1, -1)[:, :, 0:3]  # read in as 3-channel
-    color_image2 = cv2.imread(rgb_image_path2, -1)[:, :, 0:3]  # -1 means cv2.UNCHANGED
+    # ToDo: subscribe to necessary ROS topics, such as images
+    # rgb/image_rect_color
+    # depth/depth_registered
+    # prefix: /zed2i/zed_node/
+    rospy.init_node("segmentation_node")
+    rospy.Subscriber("/zed2i/zed_node/rgb/image_rect_color/", Image, img_callback)
+    rospy.Subscriber("/zed2i/zed_node/depth/depth_registered/", Image, img_callback)
+    # ToDo: Read in images from Ros topics (see callbacks)
     # convert color scale
-    color_image1 = color_image1[:, :, ::-1]  # change color from rgb to bgr for o3d
-    color_image2 = color_image2[:, :, ::-1]  # change color from rgb to bgr for o3d
+    
     # create o3d images
-    # float or int doesn't make a difference, scale later, so it's not truncated
-    # image 1
     o3d_depth_1 = o3d.geometry.Image(depth_image1.astype(np.uint16))
     o3d_color_1 = o3d.geometry.Image(color_image1.astype(np.uint8))
     # image 2
     o3d_depth_2 = o3d.geometry.Image(depth_image2.astype(np.uint16))
     o3d_color_2 = o3d.geometry.Image(color_image2.astype(np.uint8))
-    # Done: Check what happens when depth = 0 everywhere. Are there no points in the pc anymore?
-    # Done: we SHOULD NOT scale anymore, save the depth image as uint16 scaled by 10k
-    # -> The Pointcloud is empty
-    # ZED camera intrinsics
-    # ToDo: find out why intrinsics from ZED API are not equal to intrinsics from zed explorer
+    # ToDo: Read in extrinsics from zed node
     o3d_intrinsic1 = o3d.camera.PinholeCameraIntrinsic(width=1280, height=720,
                                                        fx=533.77, fy=535.53,
                                                        cx=661.87, cy=351.29)
@@ -104,4 +95,6 @@ if __name__ == "__main__":
     global_pointclouds = segmenter.project_pointclouds_to_global()
     correspondences, scores = segmenter.match_segmentations(voxel_size=0.05, threshold=0.0)
     corresponding_pointclouds = segmenter.align_corresponding_objects(correspondences, scores, visualize=False)
+
+    #ToDo: publish objects to planning scene
  
